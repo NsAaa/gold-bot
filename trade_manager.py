@@ -56,7 +56,7 @@ class TradeManager:
         self._save_state()
 
         await self.notify(
-            f"🥇 *Gold {sig.direction.upper()}* — {len(trades)} trades opened\n"
+            f"🥇 Gold {sig.direction.upper()} — {len(trades)} trades opened\n"
             f"Entry: ${price:.2f} | SL: ${sig.sl:.2f}\n"
             f"TP1: ${sig.tp1} | TP2: ${sig.tp2 or '-'} | "
             f"TP3: ${sig.tp3 or '-'} | TP4: {'open' if sig.tp4 is None else sig.tp4}\n"
@@ -94,7 +94,7 @@ class TradeManager:
                 logger.info(f"  SL moved to entry {entry:.2f} for {t.id}")
         self._save_state()
         await self.notify(
-            f"🔒 *Breakeven activated* — SL moved to entry on remaining trades\n"
+            f"🔒 Breakeven activated — SL moved to entry on remaining trades\n"
             f"Signal: {signal_id}"
         )
 
@@ -144,7 +144,7 @@ class TradeManager:
 
                 if result == "tp":
                     await self.notify(
-                        f"✅ *TP{trade.tp_level} hit* — {trade.symbol}\n"
+                        f"✅ TP{trade.tp_level} hit — {trade.symbol}\n"
                         f"Close: ${price:.2f} | P&L: {pnl_str}\n"
                         f"Signal: {signal_id}"
                     )
@@ -155,14 +155,14 @@ class TradeManager:
 
                 elif result == "sl":
                     await self.notify(
-                        f"🔴 *SL hit* — TP{trade.tp_level} trade\n"
+                        f"🔴 SL hit — TP{trade.tp_level} trade\n"
                         f"Close: ${price:.2f} | P&L: {pnl_str}\n"
                         f"Signal: {signal_id}"
                     )
 
                 elif result == "trailing":
                     await self.notify(
-                        f"🎯 *TP4 trailing stop* — {trade.symbol}\n"
+                        f"🎯 TP4 trailing stop — {trade.symbol}\n"
                         f"Close: ${price:.2f} | P&L: {pnl_str}\n"
                         f"Signal: {signal_id}"
                     )
@@ -173,7 +173,7 @@ class TradeManager:
                 total_pnl = sum(t.pnl_usd or 0 for t in trades)
                 pnl_str = f"+${total_pnl:.2f}" if total_pnl >= 0 else f"${total_pnl:.2f}"
                 await self.notify(
-                    f"📊 *Signal complete* — {signal_id}\n"
+                    f"📊 Signal complete — {signal_id}\n"
                     f"Total P&L: {pnl_str}"
                 )
 
@@ -201,7 +201,7 @@ class TradeManager:
             with open(STATE_FILE) as f:
                 data = json.load(f)
             for sid, trade_dicts in data.get("open_signals", {}).items():
-                self.open_signals[sid] = [Trade(**td) for td in trade_dicts]
+                self.open_signals[sid] = [Trade(td) for td in trade_dicts]
             logger.info(f"State loaded — {len(self.open_signals)} open signals")
         except FileNotFoundError:
             pass

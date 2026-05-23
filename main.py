@@ -37,7 +37,7 @@ manager: TradeManager = None
 async def send_notify(msg: str):
     """Send notification to Conrad's personal chat."""
     try:
-        await app.send_message(NOTIFY_CHAT_ID, msg, parse_mode="markdown")
+        await app.send_message(NOTIFY_CHAT_ID, msg)
     except Exception as e:
         logger.error(f"Notify failed: {e}")
 
