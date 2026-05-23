@@ -1,0 +1,22 @@
+# Secrets
+.env
+*.session
+*.session-journal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# State
+state.json
+state.json.bak*
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
