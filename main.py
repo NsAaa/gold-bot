@@ -44,6 +44,11 @@ async def send_notify(msg: str):
 
 @app.on_message(filters.chat(SIGNAL_CHANNEL))
 async def on_channel_message(client: Client, message: Message):
+    # Ignore messages forwarded from other channels (e.g. free channel reposts)
+    if message.forward_from_chat:
+        logger.debug(f"Skipping forwarded message from {message.forward_from_chat.title or message.forward_from_chat.id}")
+        return
+
     text = message.text or message.caption or ""
     if not text.strip():
         return
