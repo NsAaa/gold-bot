@@ -45,9 +45,12 @@ manager: TradeManager = None
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def send_notify(msg: str):
-    """Send notification to Conrad's Saved Messages."""
+    """Send notification — via command bot if available, else Saved Messages."""
     try:
-        await app.send_message(NOTIFY_CHAT_ID, msg)
+        if cmd_bot:
+            await cmd_bot.send(NOTIFY_CHAT_ID, msg)
+        else:
+            await app.send_message(NOTIFY_CHAT_ID, msg)
     except Exception as e:
         logger.error(f"Notify failed: {e}")
 
