@@ -17,6 +17,7 @@ from config import (
     SIGNAL_CHANNEL, NOTIFY_CHAT_ID, BROKER, ACCOUNT_SIZE_USD, get_lot_size,
     TELEGRAM_BOT_TOKEN,
 )
+from cmd_bot import CmdBot
 from parser import parse_message, SignalMessage, UpdateMessage
 from trade_manager import TradeManager
 
@@ -35,15 +36,8 @@ app = Client(
     phone_number=TELEGRAM_PHONE,
 )
 
-# ── Command bot client (optional — BotFather token for /status etc.) ──────────
-cmd_bot: Client = None
-if TELEGRAM_BOT_TOKEN:
-    cmd_bot = Client(
-        "gold_cmd_bot",
-        api_id=TELEGRAM_API_ID,
-        api_hash=TELEGRAM_API_HASH,
-        bot_token=TELEGRAM_BOT_TOKEN,
-    )
+# ── Command bot (optional — BotFather token for /status etc.) ────────────────
+cmd_bot: CmdBot = None  # initialised in main() after manager is ready
 
 manager: TradeManager = None
 
@@ -126,44 +120,31 @@ async def on_channel_message(client: Client, message: Message):
 
 # ── Command bot: /status, /close ──────────────────────────────────────────────
 
-if cmd_bot:
 
-    # Only allow Conrad's own chat ID to use commands
-    owner_filter = filters.user(NOTIFY_CHAT_ID) & filters.private
-
-    @cmd_bot.on_message(owner_filter & filters.command("start"))
-    async def cmd_start(client: Client, message: Message):
-        await message.reply(
-            "🟢 *Goldie command bot*\n\n"
-            "/status — open positions + live P&L\n"
-            "/close — manually close all open trades\n"
-        )
-
-    @cmd_bot.on_message(owner_filter & filters.command("status"))
-    async def cmd_status(client: Client, message: Message):
-        text = await build_status_text()
-        await message.reply(text)
-
-    @cmd_bot.on_message(owner_filter & filters.command("close"))
-    async def cmd_close(client: Client, message: Message):
-        if not manager.open_signals:
-            await message.reply("📭 No open positions to close.")
-            return
-        count = sum(
-            1 for trades in manager.open_signals.values()
-            for t in trades if t.status == "open"
-        )
-        # Close all via the update handler
-        for sid in list(manager.open_signals.keys()):
-            trades = manager.open_signals[sid]
-            open_trades = [t for t in trades if t.status == "open"]
-            await manager._close_all(sid, open_trades, reason="manual")
-        await message.reply(f"🔴 Closed {count} trades manually.")
-
-    logger.info("Command bot configured — /status and /close available")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
+async def run_userbot():
+    """Run the userbot: monitors signal channel, sends notifications."""
+    async with app:
+        bot_tag = "\nCommands: /status /close via bot" if TELEGRAM_BOT_TOKEN else ""
+        await send_notify(
+            f"🟢 *Gold Bot started*\n"
+            f"Mode: {'Paper trade 🧪' if BROKER == 'paper' else 'LIVE 🔴'}\n"
+            f"Account: ${ACCOUNT_SIZE_USD:.0f} | Lot size: {get_lot_size()} per trade\n"
+            f"Monitoring: {SIGNAL_CHANNEL}" + bot_tag
+        )
+        logger.info("Listening for signals...")
+        if manager.open_signals:
+            await send_notify(await build_status_text())
+        await watchdog()
+
+
+async def run_cmdbot():
+    """Run the command bot: handles /status, /close from Conrad."""
+    await cmd_bot.run()
+
 
 async def main():
     global manager
@@ -178,28 +159,18 @@ async def main():
 
     await manager.start_monitor()
 
-    # Start command bot if configured
-    if cmd_bot:
-        await cmd_bot.start()
-        me = await cmd_bot.get_me()
-        logger.info(f"Command bot online: @{me.username}")
-
-    async with app:
-        await send_notify(
-            f"🟢 *Gold Bot started*\n"
-            f"Mode: {'Paper trade 🧪' if BROKER == 'paper' else 'LIVE 🔴'}\n"
-            f"Account: ${ACCOUNT_SIZE_USD:.0f} | Lot size: {get_lot_size()} per trade\n"
-            f"Monitoring: {SIGNAL_CHANNEL}"
-            + (f"\nCommands: @{(await cmd_bot.get_me()).username}" if cmd_bot else "")
+    global cmd_bot
+    if TELEGRAM_BOT_TOKEN:
+        cmd_bot = CmdBot(
+            token=TELEGRAM_BOT_TOKEN,
+            owner_id=NOTIFY_CHAT_ID,
+            build_status_fn=build_status_text,
+            manager=manager,
         )
-        logger.info("Listening for signals...")
-        if manager.open_signals:
-            await send_notify(await build_status_text())
-        await watchdog()
-
-    # Clean up command bot
-    if cmd_bot:
-        await cmd_bot.stop()
+        logger.info("Command bot configured — /status and /close available")
+        await asyncio.gather(run_userbot(), run_cmdbot())
+    else:
+        await run_userbot()
 
 
 async def _send_position_summary():
