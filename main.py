@@ -42,6 +42,46 @@ async def send_notify(msg: str):
         logger.error(f"Notify failed: {e}")
 
 
+@app.on_message(filters.me & filters.private)
+async def on_saved_command(client: Client, message: Message):
+    """Handle commands sent to Saved Messages (Conrad's own chat)."""
+    text = (message.text or "").strip().lower()
+    if text not in ("!status", "/status"):
+        return
+
+    if not manager.open_signals:
+        await message.reply("📭 No open positions.")
+        return
+
+    try:
+        price = await manager.broker.get_current_price()
+    except Exception:
+        price = None
+
+    lines = [f"📊 *Goldie — Open Positions*"]
+    if price:
+        lines.append(f"Live price: ${price:.2f}\n")
+
+    for sid, trades in manager.open_signals.items():
+        open_trades = [t for t in trades if t.status == "open"]
+        closed_count = len(trades) - len(open_trades)
+        lines.append(f"Signal `{sid}` — {len(open_trades)} open, {closed_count} closed")
+        for t in open_trades:
+            if price:
+                d = -1 if t.direction == "sell" else 1
+                unreal = (price - t.entry_price) * d * 10 * t.lot_size
+                unreal_str = f" | P&L: ${unreal:+.2f}"
+            else:
+                unreal_str = ""
+            lines.append(
+                f"  TP{t.tp_level}: {t.direction.upper()} @ {t.entry_price:.0f} "
+                f"| SL {t.sl:.0f} | TP {t.tp:.0f}"
+                + unreal_str
+            )
+
+    await message.reply("\n".join(lines))
+
+
 @app.on_message(filters.chat(SIGNAL_CHANNEL))
 async def on_channel_message(client: Client, message: Message):
     # Ignore messages forwarded from other channels (e.g. free channel reposts)
