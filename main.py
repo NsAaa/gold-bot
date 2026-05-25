@@ -135,6 +135,13 @@ async def run_userbot():
             f"Account: ${ACCOUNT_SIZE_USD:.0f} | Lot size: {get_lot_size()} per trade\n"
             f"Monitoring: {SIGNAL_CHANNEL}" + bot_tag
         )
+        # Force Pyrogram to load the channel entity so update delivery is registered
+        try:
+            chat = await app.get_chat(int(SIGNAL_CHANNEL) if SIGNAL_CHANNEL.lstrip('-').isdigit() else SIGNAL_CHANNEL)
+            logger.info(f"Monitoring channel: {chat.title} ({chat.id})")
+        except Exception as e:
+            logger.warning(f"Could not prefetch channel entity: {e}")
+
         logger.info("Listening for signals...")
         if manager.open_signals:
             await send_notify(await build_status_text())
