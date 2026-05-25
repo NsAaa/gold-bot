@@ -12,6 +12,25 @@ Automatically copies Smith™ Gold VIP signals from Telegram and paper-trades th
    - TP4 → no fixed target, 0.5% trailing stop captures outlier moves
 4. Sends all trade updates to your personal Telegram chat
 
+## Command Bot (optional but recommended)
+
+Create a bot via [@BotFather](https://t.me/BotFather) for `/status` and `/close` commands:
+
+1. Open @BotFather → `/newbot`
+2. Give it a name (e.g. `Goldie Monitor`) and username (e.g. `goldiebot_yourname_bot`)
+3. Copy the token and add to `.env`:
+   ```
+   TELEGRAM_BOT_TOKEN=123456:ABCdef...
+   ```
+4. Restart the bot — it will print the bot username on startup
+5. Start a chat with your new bot → `/start`
+
+Available commands:
+- `/status` — open positions + live P&L
+- `/close` — manually close all open trades
+
+---
+
 ## Setup
 
 ### 1. Get Telegram API credentials

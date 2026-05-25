@@ -19,6 +19,10 @@ SIGNAL_CHANNEL = os.getenv("SIGNAL_CHANNEL", "")           # e.g. "SmithGoldVIP"
 # Where to send trade notifications (your personal chat)
 NOTIFY_CHAT_ID = int(os.getenv("NOTIFY_CHAT_ID", "693111427"))
 
+# Optional: Telegram bot token for command interface (from @BotFather)
+# Leave blank to disable the command bot
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
 # ── Account / Risk ────────────────────────────────────────────────────────────
 # Simulated account size in USD (for lot sizing)
 # Smith's rule: 0.01 lots per TP per £500 (~$630)
