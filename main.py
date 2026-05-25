@@ -89,7 +89,28 @@ async def main():
             f"Monitoring: {SIGNAL_CHANNEL}"
         )
         logger.info("Listening for signals...")
-        await asyncio.Event().wait()  # run forever
+        await watchdog()  # keeps running; exits on dead connection so PM2 restarts
+
+
+WATCHDOG_INTERVAL = 300  # seconds between health checks
+WATCHDOG_TIMEOUT  = 30   # seconds to wait for ping response
+
+
+async def watchdog():
+    """Periodically ping Telegram to verify the connection is alive.
+    Exits (non-zero) on failure so PM2 restarts the process.
+    """
+    while True:
+        await asyncio.sleep(WATCHDOG_INTERVAL)
+        try:
+            await asyncio.wait_for(app.get_me(), timeout=WATCHDOG_TIMEOUT)
+            logger.debug("Watchdog: connection OK")
+        except asyncio.TimeoutError:
+            logger.error("Watchdog: ping timed out — restarting")
+            raise SystemExit(1)
+        except Exception as e:
+            logger.error(f"Watchdog: connection check failed ({e}) — restarting")
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

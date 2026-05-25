@@ -201,7 +201,7 @@ class TradeManager:
             with open(STATE_FILE) as f:
                 data = json.load(f)
             for sid, trade_dicts in data.get("open_signals", {}).items():
-                self.open_signals[sid] = [Trade(td) for td in trade_dicts]
+                self.open_signals[sid] = [Trade(**td) for td in trade_dicts]
             logger.info(f"State loaded — {len(self.open_signals)} open signals")
         except FileNotFoundError:
             pass
