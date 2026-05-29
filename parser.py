@@ -21,6 +21,7 @@ class SignalMessage:
     tp3: Optional[float]
     tp4: Optional[float]    # None = open-ended
     raw: str
+    source: str = "VIP"     # "VIP" or "FREE"
 
 
 @dataclass

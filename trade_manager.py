@@ -9,7 +9,7 @@ import logging
 from typing import Optional
 from dataclasses import dataclass, asdict, field
 
-from config import get_lot_size, TP4_TRAIL_PCT, STATE_FILE
+from config import get_lot_size, TP4_TRAIL_PCT, STATE_FILE, HISTORY_FILE, ACCOUNT_SIZE_USD, AUTO_BREAKEVEN
 from parser import SignalMessage, UpdateMessage
 from broker import Trade, get_broker
 
@@ -26,11 +26,33 @@ class TradeManager:
 
     # ── Signal handling ────────────────────────────────────────────────────────
 
+    def get_running_balance(self) -> float:
+        """Starting balance + all realised P&L from closed signals."""
+        try:
+            with open(HISTORY_FILE) as f:
+                history = json.load(f)
+            realised = sum(s.get("total_pnl", 0) for s in history)
+        except FileNotFoundError:
+            realised = 0.0
+        except Exception as e:
+            logger.warning(f"Could not load history for balance: {e}")
+            realised = 0.0
+        return round(ACCOUNT_SIZE_USD + realised, 2)
+
     async def on_signal(self, sig: SignalMessage):
         """Open 4 trades from a new signal."""
         signal_id = str(uuid.uuid4())[:8]
-        lot = get_lot_size()
-        price = await self.broker.get_current_price()
+        balance = self.get_running_balance()
+        lot = get_lot_size(balance)
+
+        # Use Smith's stated entry price for paper tracking accuracy.
+        # Fall back to live price only if no entry was parsed.
+        if sig.entry is not None:
+            price = sig.entry
+            logger.info(f"Using signal entry price: {price}")
+        else:
+            price = await self.broker.get_current_price()
+            logger.info(f"No entry in signal — using live price: {price}")
 
         tps = [sig.tp1, sig.tp2, sig.tp3, sig.tp4]
         trades = []
@@ -47,16 +69,28 @@ class TradeManager:
                 tp_level=i,
                 signal_id=signal_id,
                 trail_pct=TP4_TRAIL_PCT if tp is None else None,
+                source=getattr(sig, 'source', 'VIP'),
             )
-            trade = await self.broker.open_trade(trade)
+            trade = await self.broker.open_trade(trade, fill_price=price)
             trades.append(trade)
             logger.info(f"Opened TP{i} trade {trade.id} @ {trade.entry_price} | SL {sig.sl} | TP {tp or 'open'}")
+
+        # Sanity check: warn if live price deviates > 20 pips from signal entry
+        try:
+            live = await self.broker.get_current_price()
+            deviation = abs(live - price)
+            if deviation > 20:
+                logger.warning(f"Price deviation: signal={price}, live={live:.1f}, diff={deviation:.1f} pips")
+                await self.notify(f"⚠️ Price gap: signal entry {price} vs live {live:.1f} ({deviation:.0f} pips)")
+        except Exception:
+            pass  # Non-fatal
 
         self.open_signals[signal_id] = trades
         self._save_state()
 
+        source_tag = getattr(sig, 'source', 'VIP')
         await self.notify(
-            f"🥇 Gold {sig.direction.upper()} — {len(trades)} trades opened\n"
+            f"🥇 Gold {sig.direction.upper()} [{source_tag}] — {len(trades)} trades opened\n"
             f"Entry: ${price:.2f} | SL: ${sig.sl:.2f}\n"
             f"TP1: ${sig.tp1} | TP2: ${sig.tp2 or '-'} | "
             f"TP3: ${sig.tp3 or '-'} | TP4: {'open' if sig.tp4 is None else sig.tp4}\n"
@@ -133,37 +167,38 @@ class TradeManager:
             tp1_closed = tp1_trade and tp1_trade.status == "closed"
 
             for trade in open_trades:
-                result = await self.broker.check_sl_tp(trade)
+                result, close_price = await self.broker.check_sl_tp(trade)
                 if not result:
                     continue
 
-                price = await self.broker.get_current_price()
-                trade = await self.broker.close_trade(trade, result, price)
+                trade = await self.broker.close_trade(trade, result, close_price)
                 dirty = True
                 pnl_str = f"+${trade.pnl_usd:.2f}" if trade.pnl_usd and trade.pnl_usd >= 0 else f"${trade.pnl_usd:.2f}"
 
                 if result == "tp":
                     await self.notify(
                         f"✅ TP{trade.tp_level} hit — {trade.symbol}\n"
-                        f"Close: ${price:.2f} | P&L: {pnl_str}\n"
+                        f"Close: ${close_price:.2f} | P&L: {pnl_str}\n"
                         f"Signal: {signal_id}"
                     )
-                    # Auto breakeven on TP1 hit
-                    if trade.tp_level == 1 and not tp1_closed:
+                    # Auto breakeven on TP1 hit (only if AUTO_BREAKEVEN is enabled)
+                    if AUTO_BREAKEVEN and trade.tp_level == 1 and not tp1_closed:
                         remaining = [t for t in trades if t.status == "open" and t.tp_level > 1]
                         await self._move_sl_to_entry(signal_id, remaining)
+                    elif not AUTO_BREAKEVEN and trade.tp_level == 1:
+                        logger.info(f"TP1 hit — waiting for Smith's SL update message (AUTO_BREAKEVEN=False)")
 
                 elif result == "sl":
                     await self.notify(
                         f"🔴 SL hit — TP{trade.tp_level} trade\n"
-                        f"Close: ${price:.2f} | P&L: {pnl_str}\n"
+                        f"Close: ${close_price:.2f} | P&L: {pnl_str}\n"
                         f"Signal: {signal_id}"
                     )
 
                 elif result == "trailing":
                     await self.notify(
                         f"🎯 TP4 trailing stop — {trade.symbol}\n"
-                        f"Close: ${price:.2f} | P&L: {pnl_str}\n"
+                        f"Close: ${close_price:.2f} | P&L: {pnl_str}\n"
                         f"Signal: {signal_id}"
                     )
 
@@ -178,13 +213,38 @@ class TradeManager:
                 )
 
         for sid in closed_signal_ids:
-            self.open_signals.pop(sid, None)
+            trades = self.open_signals.pop(sid, [])
+            if trades:
+                self._append_history(sid, trades)
             dirty = True
 
         if dirty:
             self._save_state()
 
     # ── State persistence ──────────────────────────────────────────────────────
+
+    def _append_history(self, signal_id: str, trades: list):
+        """Append a completed signal's trades to history.json."""
+        try:
+            try:
+                with open(HISTORY_FILE) as f:
+                    history = json.load(f)
+            except FileNotFoundError:
+                history = []
+            history.append({
+                "signal_id": signal_id,
+                "source": trades[0].source if trades else "VIP",
+                "direction": trades[0].direction if trades else "?",
+                "entry_price": trades[0].entry_price if trades else 0,
+                "sl": trades[0].sl if trades else 0,
+                "open_time": trades[0].open_time if trades else 0,
+                "trades": [asdict(t) for t in trades],
+                "total_pnl": round(sum(t.pnl_usd or 0 for t in trades), 2),
+            })
+            with open(HISTORY_FILE, "w") as f:
+                json.dump(history, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Could not save history: {e}")
 
     def _save_state(self):
         data = {

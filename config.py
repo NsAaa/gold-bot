@@ -25,20 +25,16 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 # ── Account / Risk ────────────────────────────────────────────────────────────
 # Simulated account size in USD (for lot sizing)
-# Smith's rule: 0.01 lots per TP per £500 (~$630)
-# Account size in GBP (Smith's formula is GBP-denominated)
-# £1000 → 0.02 lots per trade (0.01 per £500)
-ACCOUNT_SIZE_GBP = float(os.getenv("ACCOUNT_SIZE_GBP", "1000"))
+# Starting paper account balance in USD.
+# Smith's formula adapted: 0.01 lots per $500 of balance.
+# $1270 starting (~£1000) → 0.02 lots per trade.
+ACCOUNT_SIZE_USD = float(os.getenv("ACCOUNT_SIZE_USD", "1270"))
 
-# Kept for reference / notifications
-ACCOUNT_SIZE_USD = ACCOUNT_SIZE_GBP * 1.27  # approximate
-
-# Lot size per trade = 0.01 × (account_gbp / 500)
-LOT_SIZE_PER_500 = 0.01
-
-def get_lot_size() -> float:
-    """Return lot size per individual trade based on GBP account size."""
-    return round(LOT_SIZE_PER_500 * (ACCOUNT_SIZE_GBP / 500), 2)
+def get_lot_size(balance_usd: float = None) -> float:
+    """Return lot size per trade: 0.01 per $500 of balance (Smith's formula)."""
+    bal  = balance_usd if balance_usd is not None else ACCOUNT_SIZE_USD
+    lots = max(1, int(bal / 500)) * 0.01
+    return round(lots, 2)
 
 # ── Broker ────────────────────────────────────────────────────────────────────
 # "paper" = simulated | "binance" | "bitget"
@@ -58,5 +54,18 @@ BITGET_PASSPHRASE  = os.getenv("BITGET_PASSPHRASE", "")
 SYMBOL        = "XAUUSDT"       # Gold perpetual futures symbol
 TP4_TRAIL_PCT = 0.005           # 0.5% trailing stop for TP4 (open-ended trade)
 
+# When True, bot automatically moves SL to entry after TP1 hits.
+# When False, bot waits for Smith's explicit "move SL to entry" channel message.
+# Set to False to follow Smith's timing rather than moving SL immediately.
+AUTO_BREAKEVEN = os.getenv("AUTO_BREAKEVEN", "false").lower() == "true"
+
+# Bid/ask spread simulation (in USD, full spread split equally each side).
+# Typical gold retail broker spread: 0.3–1.0 USD.
+# e.g. SPREAD_USD=0.5 → BID = mid - 0.25, ASK = mid + 0.25
+# Buys  → entry at ASK, TP/SL monitored against BID
+# Sells → entry at BID, TP/SL monitored against ASK
+SPREAD_USD = float(os.getenv("SPREAD_USD", "0.5"))
+
 # ── State ─────────────────────────────────────────────────────────────────────
-STATE_FILE = "state.json"
+STATE_FILE   = "state.json"
+HISTORY_FILE = "history.json"
